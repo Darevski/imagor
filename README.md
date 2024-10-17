@@ -3,7 +3,7 @@
 [![Test Status](https://github.com/cshum/imagor/workflows/test/badge.svg)](https://github.com/cshum/imagor/actions/workflows/test.yml)
 [![Coverage Status](https://coveralls.io/repos/github/cshum/imagor/badge.svg?branch=master)](https://coveralls.io/github/cshum/imagor?branch=master)
 [![Docker Hub](https://img.shields.io/badge/docker-shumc/imagor-blue.svg)](https://hub.docker.com/r/shumc/imagor/)
-[![GitHub Container Registry](https://ghcr-badge.deta.dev/cshum/imagor/latest_tag?trim=major&label=ghcr.io&ignore=next,master&color=%23007ec6)](https://github.com/cshum/imagor/pkgs/container/imagor)
+[![GitHub Container Registry](https://ghcr-badge.deta.dev/cshum/imagor/latest_tag?trim=major&label=ghcr.io&ignore=master,develop&color=%23007ec6)](https://github.com/cshum/imagor/pkgs/container/imagor)
 [![Go Reference](https://pkg.go.dev/badge/github.com/cshum/imagor.svg)](https://pkg.go.dev/github.com/cshum/imagor)
 
 imagor is a fast, secure image processing server and Go library.
@@ -116,6 +116,8 @@ imagor supports the following filters:
 - `max_frames(n)` limit maximum number of animation frames `n` to be loaded
 - `orient(angle)` rotates the image before resizing and cropping, according to the angle value
   - `angle` accepts 0, 90, 180, 270
+- `page(num)` specify page number for PDF, or frame number for animated image, starts from 1
+- `dpi(num)` specify the dpi to render at for PDF and SVG
 - `proportion(percentage)` scales image to the proportion percentage of the image dimension
 - `quality(amount)` changes the overall quality of the image, does nothing for png
   - `amount` 0 to 100, the quality level in %
@@ -130,6 +132,7 @@ imagor supports the following filters:
 - `sharpen(sigma)` sharpens the image
 - `strip_exif()` removes Exif metadata from the resulting image
 - `strip_icc()` removes ICC profile information from the resulting image
+- `strip_metadata()` removes all metadata from the resulting image
 - `upscale()` upscale the image if `fit-in` is used
 - `watermark(image, x, y, alpha [, w_ratio [, h_ratio]])` adds a watermark to the image. It can be positioned inside the image with the alpha channel specified and optionally resized based on the image size by specifying the ratio
   - `image` watermark image URI, using the same image loader configured for imagor
@@ -383,11 +386,19 @@ VIPS_MAX_HEIGHT=5000
 
 #### Allowed Sources and Base URL
 
-Whitelist specific hosts to restrict loading images only from the allowed sources using `HTTP_LOADER_ALLOWED_SOURCES`. Accept csv wth glob pattern e.g.:
+Whitelist specific hosts to restrict loading images only from the allowed sources using `HTTP_LOADER_ALLOWED_SOURCES` or `HTTP_LOADER_ALLOWED_SOURCE_REGEXP`.
 
-```dotenv
-HTTP_LOADER_ALLOWED_SOURCES=*.foobar.com,my.foobar.com,mybucket.s3.amazonaws.com
-```
+- `HTTP_LOADER_ALLOWED_SOURCES` accepts csv wth glob pattern e.g.:
+
+  ```dotenv
+  HTTP_LOADER_ALLOWED_SOURCES=*.foobar.com,my.foobar.com,mybucket.s3.amazonaws.com
+  ```
+
+- `HTTP_LOADER_ALLOWED_SOURCE_REGEXP` accepts a regular expression matching on the full URL e.g.:
+
+  ```dotenv
+  HTTP_LOADER_ALLOWED_SOURCE_REGEXP='^https://raw\.githubusercontent\.com/cshum/imagor/.*'
+  ```
 
 Alternatively, it is possible to set a base URL for loading images strictly from one HTTP source. This also trims down the base URL from image endpoint:
 
@@ -594,7 +605,7 @@ Usage of imagor:
   -imagor-process-concurrency int
         Maximum number of image process to be executed simultaneously. Requests that exceed this limit are put in the queue. Set -1 for no limit (default -1)
   -imagor-process-queue-size int
-        Maximum number of image process that can be put in the queue. Requests that exceed this limit are rejected with HTTP status 429. Set -1 for no limit (default -1)
+        Maximum number of image process that can be put in the queue. Requests that exceed this limit are rejected with HTTP status 429
   -imagor-base-path-redirect string
         URL to redirect for imagor / base path e.g. https://www.google.com
   -imagor-modified-time-check
@@ -626,6 +637,8 @@ Usage of imagor:
         HTTP Loader base URL that prepends onto existing image path. This overrides the default scheme option.
   -http-loader-forward-headers string
         Forward request header to HTTP Loader request by csv e.g. User-Agent,Accept
+  -http-loader-override-response-headers string
+        Override HTTP Loader response header to image response by csv e.g. Cache-Control,Expires
   -http-loader-forward-client-headers
         Forward browser client request headers to HTTP Loader request
   -http-loader-insecure-skip-verify-transport
@@ -634,6 +647,8 @@ Usage of imagor:
         HTTP Loader maximum allowed size in bytes for loading images if set
   -http-loader-proxy-urls string
         HTTP Loader Proxy URLs. Enable HTTP Loader proxy only if this value present. Accept csv of proxy urls e.g. http://user:pass@host:port,http://user:pass@host:port
+  -http-loader-allowed-source-regexp string
+        HTTP Loader allowed hosts regexp to load images from if set. Combines as OR with allowed host glob pattern sources.
   -http-loader-proxy-allowed-sources string
         HTTP Loader Proxy allowed hosts that enable proxy transport, if proxy URLs are set. Accept csv wth glob pattern e.g. *.google.com,*.github.com.
   -http-loader-default-scheme string
@@ -652,7 +667,7 @@ Usage of imagor:
         Disable HTTP Loader
 
   -file-safe-chars string
-        File safe characters to be excluded from image key escape
+        File safe characters to be excluded from image key escape. Set -- for no-op
   -file-loader-base-dir string
         Base directory for File Loader. Enable File Loader only if this value present
   -file-loader-path-prefix string
@@ -684,10 +699,12 @@ Usage of imagor:
         AWS Region. Required if using S3 Loader or S3 Storage
   -aws-secret-access-key string
         AWS Secret Access Key. Required if using S3 Loader or S3 Storage
+  -aws-session-token string
+        AWS Session Token. Optional temporary credentials token
   -s3-endpoint string
         Optional S3 Endpoint to override default
   -s3-safe-chars string
-        S3 safe characters to be excluded from image key escape
+        S3 safe characters to be excluded from image key escape. Set -- for no-op
   -s3-force-path-style
         S3 force the request to use path-style addressing s3.amazonaws.com/bucket/key, instead of bucket.s3.amazonaws.com/key
   -s3-loader-bucket string
@@ -723,6 +740,8 @@ Usage of imagor:
         AWS Region for S3 Loader to override global config
   -aws-loader-secret-access-key string
         AWS Secret Access Key for S3 Loader to override global config
+  -aws-loader-session-token string
+        AWS Session Token for S3 Loader to override global config
   -s3-loader-endpoint string
         Optional S3 Loader Endpoint to override default
   -aws-storage-access-key-id string
@@ -731,6 +750,8 @@ Usage of imagor:
         AWS Region for S3 Storage to override global config
   -aws-storage-secret-access-key string
         AWS Secret Access Key for S3 Storage to override global config
+  -aws-storage-session-token string
+        AWS Session Token for S3 Storage to override global config
   -s3-storage-endpoint string
         Optional S3 Storage Endpoint to override default
   -aws-result-storage-access-key-id string
@@ -739,11 +760,13 @@ Usage of imagor:
         AWS Region for S3 Result Storage to override global config
   -aws-result-storage-secret-access-key string
         AWS Secret Access Key for S3 Result Storage to override global config
+  -aws-result-storage-session-token string
+        AWS Session Token for S3 Result Storage to override global config
   -s3-result-storage-endpoint string
         Optional S3 Storage Endpoint to override default
 
   -gcloud-safe-chars string
-        Google Cloud safe characters to be excluded from image key escape
+        Google Cloud safe characters to be excluded from image key escape. Set -- for no-op
   -gcloud-loader-base-dir string
         Base directory for Google Cloud Loader
   -gcloud-loader-bucket string
@@ -785,14 +808,10 @@ Usage of imagor:
         VIPS max image height
   -vips-max-resolution int
         VIPS max image resolution
-  -vips-concurrency int
-        VIPS concurrency. Set -1 to be the number of CPU cores (default 1)
-  -vips-max-cache-files int
-        VIPS max cache files
-  -vips-max-cache-mem int
-        VIPS max cache mem
-  -vips-max-cache-size int
-        VIPS max cache size
   -vips-mozjpeg
         VIPS enable maximum compression with MozJPEG. Requires mozjpeg to be installed
+  -vips-avif-speed int
+        VIPS avif speed, the lowest is at 0 and the fastest is at 9 (Default 5).
+  -vips-strip-metadata
+        VIPS strips all metadata from the resulting image
 ```

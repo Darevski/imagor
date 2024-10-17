@@ -2,7 +2,7 @@ build:
 	CGO_CFLAGS_ALLOW=-Xpreprocessor go build -o bin/imagor ./cmd/imagor/main.go
 
 test:
-	go clean -testcache && CGO_CFLAGS_ALLOW=-Xpreprocessor go test -coverprofile=profile.cov ./...
+	go clean -testcache && CGO_CFLAGS_ALLOW=-Xpreprocessor go test -coverprofile=profile.cov $(shell go list ./... | grep -v /examples/)
 
 dev: build
 	./bin/imagor -debug -imagor-unsafe
@@ -27,5 +27,10 @@ docker-dev: docker-dev-build docker-dev-run
 git-tag:
 	git tag "v$(VERSION)"
 	git push origin "refs/tags/v$(VERSION)"
+
+reset-golden:
+	git rm -rf testdata/golden
+	git commit -m  "test: reset golden"
+	git push
 
 release: build git-tag

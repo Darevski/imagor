@@ -2,13 +2,14 @@ package vips
 
 import (
 	"context"
-	"github.com/cshum/imagor"
-	"github.com/cshum/imagor/imagorpath"
-	"go.uber.org/zap"
 	"math"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cshum/imagor"
+	"github.com/cshum/imagor/imagorpath"
+	"go.uber.org/zap"
 )
 
 var imageTypeMap = map[string]ImageType{
@@ -39,11 +40,14 @@ func (v *Processor) Process(
 		stretch               = p.Stretch
 		thumbnail             = false
 		stripExif             bool
+		stripMetadata         = v.StripMetadata
 		orient                int
 		img                   *Image
 		format                = ImageTypeUnknown
 		maxN                  = v.MaxAnimationFrames
 		maxBytes              int
+		page                  = 1
+		dpi                   = 0
 		focalRects            []focal
 		err                   error
 	)
@@ -54,6 +58,9 @@ func (v *Processor) Process(
 		upscale = false
 	}
 	if maxN == 0 || maxN < -1 {
+		maxN = 1
+	}
+	if blob != nil && !blob.SupportsAnimation() {
 		maxN = 1
 	}
 	for _, p := range p.Filters {
@@ -89,6 +96,16 @@ func (v *Processor) Process(
 				thumbnailNotSupported = true
 			}
 			break
+		case "page":
+			if n, _ := strconv.Atoi(p.Args); n > 0 {
+				page = n
+			}
+			break
+		case "dpi":
+			if n, _ := strconv.Atoi(p.Args); n > 0 {
+				dpi = n
+			}
+			break
 		case "orient":
 			if n, _ := strconv.Atoi(p.Args); n > 0 {
 				orient = n
@@ -106,6 +123,8 @@ func (v *Processor) Process(
 			break
 		case "strip_exif":
 			stripExif = true
+		case "strip_metadata":
+			stripMetadata = true
 			break
 		}
 	}
@@ -128,7 +147,7 @@ func (v *Processor) Process(
 					size = SizeBoth
 				}
 				if img, err = v.NewThumbnail(
-					ctx, blob, w, h, InterestingNone, size, maxN,
+					ctx, blob, w, h, InterestingNone, size, maxN, page, dpi,
 				); err != nil {
 					return nil, err
 				}
@@ -138,7 +157,7 @@ func (v *Processor) Process(
 			if p.Width > 0 && p.Height > 0 {
 				if img, err = v.NewThumbnail(
 					ctx, blob, p.Width, p.Height,
-					InterestingNone, SizeForce, maxN,
+					InterestingNone, SizeForce, maxN, page, dpi,
 				); err != nil {
 					return nil, err
 				}
@@ -166,7 +185,7 @@ func (v *Processor) Process(
 				if thumbnail {
 					if img, err = v.NewThumbnail(
 						ctx, blob, p.Width, p.Height,
-						interest, SizeBoth, maxN,
+						interest, SizeBoth, maxN, page, dpi,
 					); err != nil {
 						return nil, err
 					}
@@ -174,7 +193,7 @@ func (v *Processor) Process(
 			} else if p.Width > 0 && p.Height == 0 {
 				if img, err = v.NewThumbnail(
 					ctx, blob, p.Width, v.MaxHeight,
-					InterestingNone, SizeBoth, maxN,
+					InterestingNone, SizeBoth, maxN, page, dpi,
 				); err != nil {
 					return nil, err
 				}
@@ -182,7 +201,7 @@ func (v *Processor) Process(
 			} else if p.Height > 0 && p.Width == 0 {
 				if img, err = v.NewThumbnail(
 					ctx, blob, v.MaxWidth, p.Height,
-					InterestingNone, SizeBoth, maxN,
+					InterestingNone, SizeBoth, maxN, page, dpi,
 				); err != nil {
 					return nil, err
 				}
@@ -192,13 +211,13 @@ func (v *Processor) Process(
 	}
 	if !thumbnail {
 		if thumbnailNotSupported {
-			if img, err = v.NewImage(ctx, blob, maxN); err != nil {
+			if img, err = v.NewImage(ctx, blob, maxN, page, dpi); err != nil {
 				return nil, err
 			}
 		} else {
 			if img, err = v.NewThumbnail(
 				ctx, blob, v.MaxWidth, v.MaxHeight,
-				InterestingNone, SizeDown, maxN,
+				InterestingNone, SizeDown, maxN, page, dpi,
 			); err != nil {
 				return nil, err
 			}
@@ -214,9 +233,12 @@ func (v *Processor) Process(
 		}
 	}
 	var (
-		quality    int
-		origWidth  = float64(img.Width())
-		origHeight = float64(img.PageHeight())
+		quality     int
+		bitdepth    int
+		compression int
+		palette     bool
+		origWidth   = float64(img.Width())
+		origHeight  = float64(img.PageHeight())
 	)
 	if format == ImageTypeUnknown {
 		if blob.BlobType() == imagor.BlobTypeAVIF {
@@ -274,6 +296,15 @@ func (v *Processor) Process(
 				focalRects = append(focalRects, f)
 			}
 			break
+		case "palette":
+			palette = true
+			break
+		case "bitdepth":
+			bitdepth, _ = strconv.Atoi(p.Args)
+			break
+		case "compression":
+			compression, _ = strconv.Atoi(p.Args)
+			break
 		}
 	}
 	if err := v.process(ctx, img, p, load, thumbnail, stretch, upscale, focalRects); err != nil {
@@ -285,7 +316,7 @@ func (v *Processor) Process(
 	}
 	format = supportedSaveFormat(format) // convert to supported export format
 	for {
-		buf, err := v.export(img, format, quality)
+		buf, err := v.export(img, format, compression, quality, palette, bitdepth, stripMetadata)
 		if err != nil {
 			return nil, WrapErr(err)
 		}
@@ -514,6 +545,9 @@ func metadata(img *Image, format ImageType, stripExif bool) *Metadata {
 	if IsAnimationSupported(format) {
 		pages = img.Height() / img.PageHeight()
 	}
+	if format == ImageTypePDF {
+		pages = img.Pages()
+	}
 	exif := map[string]any{}
 	if !stripExif {
 		exif = img.Exif()
@@ -543,15 +577,35 @@ func supportedSaveFormat(format ImageType) ImageType {
 	return ImageTypeJPEG
 }
 
-func (v *Processor) export(image *Image, format ImageType, quality int) ([]byte, error) {
+func (v *Processor) export(
+	image *Image, format ImageType, compression int, quality int, palette bool, bitdepth int, stripMetadata bool,
+) ([]byte, error) {
 	switch format {
 	case ImageTypePNG:
 		opts := NewPngExportParams()
+		if quality > 0 {
+			opts.Quality = quality
+		}
+		if palette {
+			opts.Palette = palette
+		}
+		if bitdepth > 0 {
+			opts.Bitdepth = bitdepth
+		}
+		if compression > 0 {
+			opts.Compression = compression
+		}
+		if stripMetadata {
+			opts.StripMetadata = true
+		}
 		return image.ExportPng(opts)
 	case ImageTypeWEBP:
 		opts := NewWebpExportParams()
 		if quality > 0 {
 			opts.Quality = quality
+		}
+		if stripMetadata {
+			opts.StripMetadata = true
 		}
 		return image.ExportWebp(opts)
 	case ImageTypeTIFF:
@@ -559,11 +613,17 @@ func (v *Processor) export(image *Image, format ImageType, quality int) ([]byte,
 		if quality > 0 {
 			opts.Quality = quality
 		}
+		if stripMetadata {
+			opts.StripMetadata = true
+		}
 		return image.ExportTiff(opts)
 	case ImageTypeGIF:
 		opts := NewGifExportParams()
 		if quality > 0 {
 			opts.Quality = quality
+		}
+		if stripMetadata {
+			opts.StripMetadata = true
 		}
 		return image.ExportGIF(opts)
 	case ImageTypeAVIF:
@@ -571,6 +631,10 @@ func (v *Processor) export(image *Image, format ImageType, quality int) ([]byte,
 		if quality > 0 {
 			opts.Quality = quality
 		}
+		if stripMetadata {
+			opts.StripMetadata = true
+		}
+		opts.Speed = v.AvifSpeed
 		return image.ExportAvif(opts)
 	case ImageTypeHEIF:
 		opts := NewHeifExportParams()
@@ -597,6 +661,9 @@ func (v *Processor) export(image *Image, format ImageType, quality int) ([]byte,
 		}
 		if quality > 0 {
 			opts.Quality = quality
+		}
+		if stripMetadata {
+			opts.StripMetadata = true
 		}
 		return image.ExportJpeg(opts)
 	}

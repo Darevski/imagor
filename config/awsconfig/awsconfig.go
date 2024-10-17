@@ -2,6 +2,7 @@ package awsconfig
 
 import (
 	"flag"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -19,6 +20,8 @@ func WithAWS(fs *flag.FlagSet, cb func() (*zap.Logger, bool)) imagor.Option {
 			"AWS Access Key ID. Required if using S3 Loader or Storage")
 		awsSecretAccessKey = fs.String("aws-secret-access-key", "",
 			"AWS Secret Access Key. Required if using S3 Loader or Storage")
+		awsSessionToken = fs.String("aws-session-token", "",
+			"AWS Session Token. Optional temporary credentials token")
 		s3Endpoint = fs.String("s3-endpoint", "",
 			"Optional S3 Endpoint to override default")
 
@@ -28,6 +31,8 @@ func WithAWS(fs *flag.FlagSet, cb func() (*zap.Logger, bool)) imagor.Option {
 			"AWS Access Key ID for S3 Loader to override global config")
 		awsLoaderSecretAccessKey = fs.String("aws-loader-secret-access-key", "",
 			"AWS Secret Access Key for S3 Loader to override global config")
+		awsLoaderSessionToken = fs.String("aws-loader-session-token", "",
+			"AWS Session Token for S3 Loader to override global config")
 		s3LoaderEndpoint = fs.String("s3-loader-endpoint", "",
 			"Optional S3 Loader Endpoint to override default")
 
@@ -37,6 +42,8 @@ func WithAWS(fs *flag.FlagSet, cb func() (*zap.Logger, bool)) imagor.Option {
 			"AWS Access Key ID for S3 Storage to override global config")
 		awsStorageSecretAccessKey = fs.String("aws-storage-secret-access-key", "",
 			"AWS Secret Access Key for S3 Storage to override global config")
+		awsStorageSessionToken = fs.String("aws-storage-session-token", "",
+			"AWS Session Token for S3 Storage to override global config")
 		s3StorageEndpoint = fs.String("s3-storage-endpoint", "",
 			"Optional S3 Storage Endpoint to override default")
 
@@ -46,13 +53,15 @@ func WithAWS(fs *flag.FlagSet, cb func() (*zap.Logger, bool)) imagor.Option {
 			"AWS Access Key ID for S3 Result Storage to override global config")
 		awsResultStorageSecretAccessKey = fs.String("aws-result-storage-secret-access-key", "",
 			"AWS Secret Access Key for S3 Result Storage to override global config")
+		awsResultStorageSessionToken = fs.String("aws-result-storage-session-token", "",
+			"AWS Session Token for S3 Result Storage to override global config")
 		s3ResultStorageEndpoint = fs.String("s3-result-storage-endpoint", "",
 			"Optional S3 Storage Endpoint to override default")
 
 		s3ForcePathStyle = fs.Bool("s3-force-path-style", false,
 			"S3 force the request to use path-style addressing s3.amazonaws.com/bucket/key, instead of bucket.s3.amazonaws.com/key")
 		s3SafeChars = fs.String("s3-safe-chars", "",
-			"S3 safe characters to be excluded from image key escape")
+			"S3 safe characters to be excluded from image key escape. Set -- for no-op")
 
 		s3LoaderBucket = fs.String("s3-loader-bucket", "",
 			"S3 Bucket for S3 Loader. Enable S3 Loader only if this value present")
@@ -82,6 +91,8 @@ func WithAWS(fs *flag.FlagSet, cb func() (*zap.Logger, bool)) imagor.Option {
 			"Upload ACL for S3 Result Storage")
 		s3ResultStorageExpiration = fs.Duration("s3-result-storage-expiration", 0,
 			"S3 Result Storage expiration duration e.g. 24h. Default no expiration")
+		s3StorageClass = fs.String("s3-storage-class", "STANDARD",
+			"S3 File Storage Class. Available values: REDUCED_REDUNDANCY, STANDARD_IA, ONEZONE_IA, INTELLIGENT_TIERING, GLACIER, DEEP_ARCHIVE. Default: STANDARD.")
 
 		_, _ = cb()
 	)
@@ -91,7 +102,7 @@ func WithAWS(fs *flag.FlagSet, cb func() (*zap.Logger, bool)) imagor.Option {
 		}
 		var loaderSess, storageSess, resultStorageSess *session.Session
 		var cred = credentials.NewStaticCredentials(
-			*awsAccessKeyID, *awsSecretAccessKey, "")
+			*awsAccessKeyID, *awsSecretAccessKey, *awsSessionToken)
 		var options = session.Options{
 			SharedConfigState: session.SharedConfigEnable,
 		}
@@ -115,7 +126,7 @@ func WithAWS(fs *flag.FlagSet, cb func() (*zap.Logger, bool)) imagor.Option {
 				Endpoint: s3LoaderEndpoint,
 				Region:   awsLoaderRegion,
 				Credentials: credentials.NewStaticCredentials(
-					*awsLoaderAccessKeyID, *awsLoaderSecretAccessKey, ""),
+					*awsLoaderAccessKeyID, *awsLoaderSecretAccessKey, *awsLoaderSessionToken),
 				S3ForcePathStyle: s3ForcePathStyle,
 			}
 			// activate AWS Session only if credentials present
@@ -126,7 +137,7 @@ func WithAWS(fs *flag.FlagSet, cb func() (*zap.Logger, bool)) imagor.Option {
 				Endpoint: s3StorageEndpoint,
 				Region:   awsStorageRegion,
 				Credentials: credentials.NewStaticCredentials(
-					*awsStorageAccessKeyID, *awsStorageSecretAccessKey, ""),
+					*awsStorageAccessKeyID, *awsStorageSecretAccessKey, *awsStorageSessionToken),
 				S3ForcePathStyle: s3ForcePathStyle,
 			}
 			// activate AWS Session only if credentials present
@@ -137,7 +148,7 @@ func WithAWS(fs *flag.FlagSet, cb func() (*zap.Logger, bool)) imagor.Option {
 				Endpoint: s3ResultStorageEndpoint,
 				Region:   awsResultStorageRegion,
 				Credentials: credentials.NewStaticCredentials(
-					*awsResultStorageAccessKeyID, *awsResultStorageSecretAccessKey, ""),
+					*awsResultStorageAccessKeyID, *awsResultStorageSecretAccessKey, *awsResultStorageSessionToken),
 				S3ForcePathStyle: s3ForcePathStyle,
 			}
 			// activate AWS Session only if credentials present
@@ -152,6 +163,7 @@ func WithAWS(fs *flag.FlagSet, cb func() (*zap.Logger, bool)) imagor.Option {
 					s3storage.WithACL(*s3StorageACL),
 					s3storage.WithSafeChars(*s3SafeChars),
 					s3storage.WithExpiration(*s3StorageExpiration),
+					s3storage.WithStorageClass(*s3StorageClass),
 				),
 			)
 		}
@@ -174,6 +186,7 @@ func WithAWS(fs *flag.FlagSet, cb func() (*zap.Logger, bool)) imagor.Option {
 					s3storage.WithACL(*s3ResultStorageACL),
 					s3storage.WithSafeChars(*s3SafeChars),
 					s3storage.WithExpiration(*s3ResultStorageExpiration),
+					s3storage.WithStorageClass(*s3StorageClass),
 				),
 			)
 		}

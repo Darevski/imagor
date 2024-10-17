@@ -5,8 +5,8 @@ import (
 	"github.com/cshum/imagor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"io/ioutil"
 	"net/http"
+	"os"
 	"regexp"
 	"testing"
 	"time"
@@ -36,6 +36,14 @@ func TestFileStore_Path(t *testing.T) {
 			image:      "/foo/b{:}ar",
 			expected:   "/home/imagor/foo/b{%3A}ar",
 			safeChars:  "{}",
+			expectedOk: true,
+		},
+		{
+			name:       "no-op safe chars",
+			baseDir:    "/home/imagor",
+			image:      "/foo/b{:}ar",
+			expected:   "/home/imagor/foo/b{:}ar",
+			safeChars:  "--",
 			expectedOk: true,
 		},
 		{
@@ -123,7 +131,7 @@ func TestFileStore_Path(t *testing.T) {
 func TestFileStorage_Load_Save(t *testing.T) {
 	ctx := context.Background()
 	r := (&http.Request{}).WithContext(ctx)
-	dir, err := ioutil.TempDir("", "imagor-test")
+	dir, err := os.MkdirTemp("", "imagor-test")
 	require.NoError(t, err)
 
 	t.Run("blacklisted path", func(t *testing.T) {

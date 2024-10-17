@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,6 +17,40 @@ import (
 
 	"github.com/cshum/imagor"
 )
+
+// AllowedSource represents a source the HTTPLoader is allowed to load from.
+// It supports host glob patterns such as *.google.com and a full URL regex.
+type AllowedSource struct {
+	HostPattern string
+	URLRegex    *regexp.Regexp
+}
+
+// NewRegexpAllowedSource creates a new AllowedSource from the regex pattern
+func NewRegexpAllowedSource(pattern string) (AllowedSource, error) {
+	regex, err := regexp.Compile(pattern)
+	if err != nil {
+		return AllowedSource{}, err
+	}
+	return AllowedSource{
+		URLRegex: regex,
+	}, nil
+}
+
+// NewHostPatternAllowedSource creates a new AllowedSource from the host glob pattern
+func NewHostPatternAllowedSource(pattern string) AllowedSource {
+	return AllowedSource{
+		HostPattern: pattern,
+	}
+}
+
+// Match checks if the url matches the AllowedSource
+func (s AllowedSource) Match(u *url.URL) bool {
+	if s.URLRegex != nil {
+		return s.URLRegex.MatchString(u.String())
+	}
+	matched, e := path.Match(s.HostPattern, u.Host)
+	return matched && e == nil
+}
 
 // HTTPLoader HTTP Loader implements imagor.Loader interface
 type HTTPLoader struct {
@@ -27,9 +63,11 @@ type HTTPLoader struct {
 	// OverrideHeaders override image request headers
 	OverrideHeaders map[string]string
 
-	// AllowedSources list of host names allowed to load from,
-	// supports glob patterns such as *.google.com
-	AllowedSources []string
+	// OverrideResponseHeaders override image response header from HTTP Loader response
+	OverrideResponseHeaders []string
+
+	// AllowedSources list of sources allowed to load from
+	AllowedSources []AllowedSource
 
 	// Accept set request Accept and validate response Content-Type header
 	Accept string
@@ -116,8 +154,14 @@ func (h *HTTPLoader) Get(r *http.Request, image string) (*imagor.Blob, error) {
 			return nil, imagor.ErrInvalid
 		}
 	}
+
+	// Basic cleanup of the URL by dropping the fragment and cleaning up the
+	// path which is important for matching against allowed sources.
+	u = u.JoinPath()
+	u.Fragment = ""
+
 	if !isURLAllowed(u, h.AllowedSources) {
-		return nil, imagor.ErrInvalid
+		return nil, imagor.ErrSourceNotAllowed
 	}
 	client := &http.Client{
 		Transport:     h.Transport,
@@ -163,6 +207,14 @@ func (h *HTTPLoader) Get(r *http.Request, image string) (*imagor.Blob, error) {
 		}
 		once.Do(func() {
 			blob.SetContentType(resp.Header.Get("Content-Type"))
+			if len(h.OverrideResponseHeaders) > 0 {
+				blob.Header = make(http.Header)
+				for _, key := range h.OverrideResponseHeaders {
+					if val := resp.Header.Get(key); val != "" {
+						blob.Header.Set(key, val)
+					}
+				}
+			}
 		})
 		body := resp.Body
 		size, _ := strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64)
@@ -215,7 +267,7 @@ func (h *HTTPLoader) checkRedirect(r *http.Request, via []*http.Request) error {
 		return errors.New("stopped after 10 redirects")
 	}
 	if !isURLAllowed(r.URL, h.AllowedSources) {
-		return imagor.ErrInvalid
+		return imagor.ErrSourceNotAllowed
 	}
 	return nil
 }

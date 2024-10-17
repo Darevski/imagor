@@ -59,7 +59,6 @@ func TestWithInternal(t *testing.T) {
 			return NewBlobFromBytes([]byte("foo")), nil
 		})),
 		WithProcessors(processorFunc(func(ctx context.Context, blob *Blob, p imagorpath.Params, load LoadFunc) (*Blob, error) {
-			fmt.Println(p.Path, p.Image)
 			assert.Contains(t, p.Path, p.Image)
 			assert.Positive(t, p.Width)
 			assert.Positive(t, p.Height)
@@ -331,6 +330,35 @@ func TestWithRaw(t *testing.T) {
 	assert.Equal(t, "bar", w.Header().Get("Content-Type"))
 }
 
+func TestWithOverrideHeader(t *testing.T) {
+	app := New(
+		WithDebug(true),
+		WithUnsafe(true),
+		WithLogger(zap.NewExample()),
+		WithLoaders(loaderFunc(func(r *http.Request, image string) (*Blob, error) {
+			blob := NewBlobFromBytes([]byte("foo"))
+			blob.SetContentType("bar")
+			blob.Header = make(http.Header)
+			blob.Header.Set("Content-Type", "tada")
+			blob.Header.Set("Foo", "bar")
+			blob.Header.Set("asdf", "fghj")
+			return blob, nil
+		})),
+		WithProcessors(processorFunc(func(ctx context.Context, blob *Blob, p imagorpath.Params, load LoadFunc) (*Blob, error) {
+			out := NewBlobFromBytes([]byte("processed"))
+			out.SetContentType("boom")
+			return out, nil
+		})),
+	)
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, httptest.NewRequest(
+		http.MethodGet, "https://example.com/unsafe/filters:fill(red)/gopher.png", nil))
+	assert.Equal(t, 200, w.Code)
+	assert.Equal(t, "processed", w.Body.String())
+	assert.Equal(t, "tada", w.Header().Get("Content-Type"))
+	assert.Equal(t, "fghj", w.Header().Get("ASDF"))
+}
+
 func TestNewBlobFromPathNotFound(t *testing.T) {
 	loader := loaderFunc(func(r *http.Request, image string) (*Blob, error) {
 		return NewBlobFromFile("./non-exists-path"), nil
@@ -406,6 +434,20 @@ func TestWithCacheHeaderTTL(t *testing.T) {
 		assert.Equal(t, 200, w.Code)
 		assert.Equal(t, "public, s-maxage=169, max-age=169, no-transform, stale-while-revalidate=167", w.Header().Get("Cache-Control"))
 	})
+	t.Run("custom ttl swr private", func(t *testing.T) {
+		app := New(
+			WithLogger(zap.NewExample()),
+			WithCacheHeaderSWR(time.Second*167),
+			WithCacheHeaderTTL(time.Second*169),
+			WithLoaders(loader),
+			WithUnsafe(true))
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "https://example.com/unsafe/foo.jpg", nil)
+		r.Header.Set("Cache-Control", "private")
+		app.ServeHTTP(w, r)
+		assert.Equal(t, 200, w.Code)
+		assert.Equal(t, "private, max-age=169, no-transform, stale-while-revalidate=167", w.Header().Get("Cache-Control"))
+	})
 	t.Run("custom ttl no swr", func(t *testing.T) {
 		app := New(
 			WithLogger(zap.NewExample()),
@@ -463,7 +505,16 @@ func TestExpire(t *testing.T) {
 			now.Add(time.Second).UnixMilli(),
 		), nil))
 	assert.Equal(t, 200, w.Code)
-	assert.Equal(t, "private, no-cache, no-store, must-revalidate", w.Header().Get("Cache-Control"))
+	assert.Equal(t, "private, max-age=1, no-transform", w.Header().Get("Cache-Control"))
+
+	w = httptest.NewRecorder()
+	app.ServeHTTP(w, httptest.NewRequest(
+		http.MethodGet,
+		fmt.Sprintf("https://example.com/unsafe/filters:expire(%d):foo(bar)/foo.jpg",
+			now.Add(time.Second*170).UnixMilli(),
+		), nil))
+	assert.Equal(t, 200, w.Code)
+	assert.Equal(t, "private, max-age=169, no-transform", w.Header().Get("Cache-Control"))
 
 	w = httptest.NewRecorder()
 	app.ServeHTTP(w, httptest.NewRequest(
@@ -988,6 +1039,12 @@ func TestWithStorageHasher(t *testing.T) {
 			}
 			return "storage:" + img
 		})),
+		WithProcessors(processorFunc(func(ctx context.Context, blob *Blob, p imagorpath.Params, load LoadFunc) (*Blob, error) {
+			if p.Image == "err" {
+				return nil, ErrInternal
+			}
+			return blob, nil
+		})),
 		WithUnsafe(true),
 		WithModifiedTimeCheck(true),
 	)
@@ -1022,12 +1079,21 @@ func TestWithStorageHasher(t *testing.T) {
 	assert.Equal(t, 200, w.Code)
 	assert.Equal(t, "bar", w.Body.String())
 
+	w = httptest.NewRecorder()
+	app.ServeHTTP(w, httptest.NewRequest(
+		http.MethodGet, "https://example.com/unsafe/err", nil))
+	time.Sleep(time.Millisecond * 10) // make sure storage reached
+	assert.Equal(t, 500, w.Code)
+	assert.Equal(t, jsonStr(ErrInternal), w.Body.String())
+
 	assert.Equal(t, 0, store.LoadCnt["storage:bar"])
 	assert.Equal(t, 0, store.SaveCnt["storage:bar"])
 	assert.Equal(t, 1, len(store.LoadCnt))
-	assert.Equal(t, 1, len(store.SaveCnt))
+	assert.Equal(t, 2, len(store.SaveCnt))
+	assert.Equal(t, 1, len(store.DelCnt))
 	assert.Equal(t, 1, loadCnt["foo"], 1)
 	assert.Equal(t, 2, loadCnt["bar"], 2)
+	assert.Equal(t, 1, store.DelCnt["storage:err"])
 }
 
 func TestClientCancel(t *testing.T) {
@@ -1116,7 +1182,7 @@ func TestWithProcessConcurrency(t *testing.T) {
 		result[code]++
 	}
 	assert.Equal(t, 1, result[200])
-	assert.Equal(t, 4, result[408])
+	assert.Equal(t, 4, result[429])
 }
 
 func TestWithModifiedTimeCheck(t *testing.T) {

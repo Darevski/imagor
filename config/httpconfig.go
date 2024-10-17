@@ -14,10 +14,14 @@ func withHTTPLoader(fs *flag.FlagSet, cb func() (*zap.Logger, bool)) imagor.Opti
 	var (
 		httpLoaderForwardHeaders = fs.String("http-loader-forward-headers", "",
 			"Forward request header to HTTP Loader request by csv e.g. User-Agent,Accept")
+		httpLoaderOverrideResponseHeaders = fs.String("http-loader-override-response-headers", "",
+			"Override HTTP Loader response header to image response by csv e.g. Cache-Control,Expires")
 		httpLoaderForwardClientHeaders = fs.Bool("http-loader-forward-client-headers", false,
 			"Forward browser client request headers to HTTP Loader request")
 		httpLoaderForwardAllHeaders = fs.Bool("http-loader-forward-all-headers", false,
 			"Deprecated in flavour of -http-loader-forward-client-headers")
+		httpLoaderAllowedSourceRegexp = fs.String("http-loader-allowed-source-regexp", "",
+			"HTTP Loader allowed hosts regexp to load images from if set. Combines as OR with allowed host glob pattern sources.")
 		httpLoaderAllowedSources = fs.String("http-loader-allowed-sources", "",
 			"HTTP Loader allowed hosts whitelist to load images from if set. Accept csv wth glob pattern e.g. *.google.com,*.github.com.")
 		httpLoaderMaxAllowedSize = fs.Int("http-loader-max-allowed-size", 0,
@@ -56,7 +60,9 @@ func withHTTPLoader(fs *flag.FlagSet, cb func() (*zap.Logger, bool)) imagor.Opti
 						*httpLoaderForwardClientHeaders || *httpLoaderForwardAllHeaders),
 					httploader.WithAccept(*httpLoaderAccept),
 					httploader.WithForwardHeaders(*httpLoaderForwardHeaders),
+					httploader.WithOverrideResponseHeaders(*httpLoaderOverrideResponseHeaders),
 					httploader.WithAllowedSources(*httpLoaderAllowedSources),
+					httploader.WithAllowedSourceRegexps(*httpLoaderAllowedSourceRegexp),
 					httploader.WithMaxAllowedSize(*httpLoaderMaxAllowedSize),
 					httploader.WithInsecureSkipVerifyTransport(*httpLoaderInsecureSkipVerifyTransport),
 					httploader.WithDefaultScheme(*httpLoaderDefaultScheme),

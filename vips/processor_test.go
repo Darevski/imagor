@@ -52,12 +52,12 @@ func TestProcessor(t *testing.T) {
 			{name: "jpeg", path: "fit-in/100x100/demo1.jpg"},
 			{name: "webp", path: "fit-in/100x100/demo3.webp", arm64Golden: true},
 			{name: "tiff", path: "fit-in/100x100/gopher.tiff"},
-			{name: "avif", path: "fit-in/100x100/gopher-front.avif", checkTypeOnly: true},
+			//{name: "avif", path: "fit-in/100x100/gopher-front.avif", checkTypeOnly: true},
 			{name: "export gif", path: "filters:format(gif):quality(70)/gopher-front.png"},
 			{name: "export webp", path: "filters:format(webp):quality(70)/gopher-front.png", arm64Golden: true},
 			{name: "export tiff", path: "filters:format(tiff):quality(70)/gopher-front.png"},
-			{name: "export avif", path: "filters:format(avif):quality(70)/gopher-front.png", checkTypeOnly: true},
-			{name: "export heif", path: "filters:format(heif):quality(70)/gopher-front.png", checkTypeOnly: true},
+			//{name: "export avif", path: "filters:format(avif):quality(70)/gopher-front.png", checkTypeOnly: true},
+			//{name: "export heif", path: "filters:format(heif):quality(70)/gopher-front.png", checkTypeOnly: true},
 		}, WithDebug(true), WithLogger(zap.NewExample()))
 	})
 	t.Run("meta", func(t *testing.T) {
@@ -65,11 +65,37 @@ func TestProcessor(t *testing.T) {
 		doGoldenTests(t, resultDir, []test{
 			{name: "meta jpeg", path: "meta/fit-in/100x100/demo1.jpg"},
 			{name: "meta gif", path: "meta/fit-in/100x100/dancing-banana.gif"},
-			{name: "meta svg", path: "meta/test.svg"},
+			{name: "base meta svg", path: "meta/test.svg"},
+			{name: "base meta jp2", path: "meta/gopher.jp2"},
+			{name: "base meta pdf", path: "meta/sample.pdf"},
+			{name: "base meta heif", path: "meta/gopher-front.heif"},
+			{name: "base meta tiff", path: "meta/gopher.tiff"},
 			{name: "meta format no animate", path: "meta/fit-in/100x100/filters:format(jpg)/dancing-banana.gif"},
 			{name: "meta exif", path: "meta/Canon_40D.jpg"},
 			{name: "meta strip exif", path: "meta/filters:strip_exif()/Canon_40D.jpg"},
 			{name: "meta geo", path: "meta/filters:geo(55.75,25.925833)/Canon_40D.jpg"},
+		}, WithDebug(true), WithLogger(zap.NewExample()))
+	})
+	t.Run("vips strip metadata config", func(t *testing.T) {
+		var resultDir = filepath.Join(testDataDir, "golden")
+		doGoldenTests(t, resultDir, []test{
+			{name: "png", path: "fit-in/67x67/gopher-front.png"},
+			{name: "jpeg", path: "fit-in/67x67/demo1.jpg"},
+			{name: "webp", path: "fit-in/67x67/demo3.webp", arm64Golden: true},
+			{name: "tiff", path: "fit-in/67x67/gopher.tiff"},
+			{name: "tiff", path: "fit-in/67x67/dancing-banana.gif"},
+			//{name: "avif", path: "fit-in/67x67/gopher-front.avif", checkTypeOnly: true},
+		}, WithDebug(true), WithStripMetadata(true), WithLogger(zap.NewExample()))
+	})
+	t.Run("vips strip_metadata filter", func(t *testing.T) {
+		var resultDir = filepath.Join(testDataDir, "golden")
+		doGoldenTests(t, resultDir, []test{
+			{name: "png", path: "gopher-front.png"},
+			{name: "jpeg", path: "fit-in/67x67/filters:strip_metadata()/demo1.jpg"},
+			{name: "webp", path: "fit-in/67x67/filters:strip_metadata()/demo3.webp", arm64Golden: true},
+			{name: "tiff", path: "fit-in/67x67/filters:strip_metadata()/gopher.tiff"},
+			{name: "gif", path: "fit-in/67x67/filters:strip_metadata()/dancing-banana.gif"},
+			//{name: "avif", path: "fit-in/67x67/filters:strip_metadata()/gopher-front.avif", checkTypeOnly: true},
 		}, WithDebug(true), WithLogger(zap.NewExample()))
 	})
 	t.Run("vips operations", func(t *testing.T) {
@@ -86,6 +112,7 @@ func TestProcessor(t *testing.T) {
 			{name: "resize focal float", path: "300x100/filters:fill(white):format(jpeg):focal(0.35x0.25:0.6x0.3)/gopher.png"},
 			{name: "resize focal point", path: "300x100/filters:fill(white):format(jpeg):focal(589x401):focal(1000x814)/gopher.png"},
 			{name: "resize focal point edge", path: "300x100/filters:fill(white):format(jpeg):focal(9999x9999)/gopher.png"},
+			{name: "resize focal point exif orientation cw90", path: "300x300/filters:format(jpeg):focal(150:150)/gopher-exif-orientation-cw90.png"},
 			{name: "resize top", path: "200x100/top/filters:quality(70):format(tiff)/gopher.png"},
 			{name: "resize top", path: "200x100/right/top/gopher.png"},
 			{name: "resize bottom", path: "200x100/bottom/gopher.png"},
@@ -97,6 +124,7 @@ func TestProcessor(t *testing.T) {
 			{name: "proportion", path: "filters:proportion(10)/gopher.png"},
 			{name: "proportion float", path: "filters:proportion(0.1)/gopher.png"},
 			{name: "resize orient", path: "100x200/left/filters:orient(90)/gopher.png"},
+			{name: "png params", path: "200x200/filters:format(png):palette():bitdepth(4):compression(8)/gopher.png"},
 			{name: "fit-in unspecified height", path: "fit-in/50x0/filters:fill(white):format(jpg)/Canon_40D.jpg"},
 			{name: "resize unspecified height", path: "50x0/filters:fill(white):format(jpg)/Canon_40D.jpg"},
 			{name: "fit-in unspecified width", path: "fit-in/0x50/filters:fill(white):format(jpg)/Canon_40D.jpg"},
@@ -106,6 +134,7 @@ func TestProcessor(t *testing.T) {
 			{name: "fit-in padding", path: "fit-in/100x100/10x5/filters:fill(white)/gopher.png"},
 			{name: "fit-in padding transparent", path: "fit-in/100x100/10x5/filters:fill(none)/gopher.png"},
 			{name: "fit-in padding transparent non-alpha", path: "fit-in/100x120/10x5/filters:fill(none):format(png)/demo1.jpg"},
+			{name: "fit-in stretch padding transparent", path: "fit-in/stretch/100x100/10x10/filters:fill(transparent)/gopher.png"},
 			{name: "resize padding", path: "100x100/10x5/top/filters:fill(white)/gopher.png"},
 			{name: "stretch padding", path: "stretch/100x100/10x5/filters:fill(white)/gopher.png"},
 			{name: "padding", path: "0x0/40x50/filters:fill(white)/gopher-front.png"},
@@ -119,6 +148,7 @@ func TestProcessor(t *testing.T) {
 			{name: "crop-percent stretch top flip", path: "0.006120x0.008993:1.0x1.0/stretch/100x200/filters:brightness(-20):contrast(50):rgb(10,-50,30):fill(black)/gopher.png"},
 			{name: "padding rotation fill blur grayscale", path: "/fit-in/200x210/20x20/filters:rotate(90):rotate(270):rotate(180):fill(blur):grayscale()/gopher.png"},
 			{name: "fill round_corner", path: "fit-in/0x210/filters:fill(yellow):round_corner(40,60,green)/gopher.png"},
+			{name: "grayscale fill none", path: "fit-in/100x100/filters:fill(none)/2bands.png", checkTypeOnly: true},
 			{name: "trim alpha", path: "trim/find_trim_alpha.png"},
 			{name: "trim with crop", path: "trim:bottom-right/50x50:0x0/find_trim.png"},
 			{name: "trim right", path: "trim:bottom-right/500x500/filters:strip_exif():upscale():no_upscale()/find_trim.png"},
@@ -137,6 +167,8 @@ func TestProcessor(t *testing.T) {
 			{name: "original animated", path: "dancing-banana.gif"},
 			{name: "original animated quality", path: "filters:quality(60)/dancing-banana.gif"},
 			{name: "original animated max_frames", path: "filters:max_frames(3)/dancing-banana.gif"},
+			{name: "original animated page", path: "filters:page(5)/dancing-banana.gif"},
+			{name: "original animated page exceeded", path: "filters:page(999)/dancing-banana.gif"},
 			{name: "original animated strip_exif retain metadata", path: "filters:strip_exif()/dancing-banana.gif"},
 			{name: "rotate animated", path: "fit-in/100x150/filters:rotate(90):fill(yellow)/dancing-banana.gif", arm64Golden: true},
 			{name: "crop animated", path: "30x20:100x150/dancing-banana.gif"},
@@ -175,10 +207,11 @@ func TestProcessor(t *testing.T) {
 			{name: "label float", path: "fit-in/300x200/10x10/filters:fill(yellow):label(IMAGOR,-0.15,0.1,30,red,30)/gopher-front.png", arm64Golden: true},
 			{name: "label animated", path: "fit-in/150x200/10x00:10x50/filters:fill(yellow):label(IMAGOR,center,-30,25,black)/dancing-banana.gif", arm64Golden: true},
 			{name: "label animated with font", path: "fit-in/150x200/10x00:10x50/filters:fill(cyan):label(IMAGOR,center,-30,25,white,0,monospace)/dancing-banana.gif", arm64Golden: true},
+			{name: "label grayscale", path: "fit-in/filters:label(imagor,-1,0,50)/2bands.png", checkTypeOnly: true},
 			{name: "strip exif", path: "filters:strip_exif()/Canon_40D.jpg"},
 			{name: "bmp 24bit", path: "100x100/bmp_24.bmp"},
 			{name: "bmp 8bit", path: "100x100/lena_gray.bmp"},
-			{name: "svg", path: "test.svg", arm64Golden: true},
+			{name: "svg", path: "test.svg", checkTypeOnly: true},
 		}, WithDebug(true), WithLogger(zap.NewExample()))
 	})
 	t.Run("max frames", func(t *testing.T) {

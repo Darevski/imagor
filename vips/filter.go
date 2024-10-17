@@ -3,14 +3,15 @@ package vips
 import (
 	"context"
 	"fmt"
-	"github.com/cshum/imagor"
-	"github.com/cshum/imagor/imagorpath"
-	"golang.org/x/image/colornames"
 	"image/color"
 	"math"
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/cshum/imagor"
+	"github.com/cshum/imagor/imagorpath"
+	"golang.org/x/image/colornames"
 )
 
 func (v *Processor) watermark(ctx context.Context, img *Image, load imagor.LoadFunc, args ...string) (err error) {
@@ -47,13 +48,13 @@ func (v *Processor) watermark(ctx context.Context, img *Image, load imagor.LoadF
 			h = img.PageHeight() * h / 100
 		}
 		if overlay, err = v.NewThumbnail(
-			ctx, blob, w, h, InterestingNone, SizeDown, n,
+			ctx, blob, w, h, InterestingNone, SizeBoth, n, 1, 0,
 		); err != nil {
 			return
 		}
 	} else {
 		if overlay, err = v.NewThumbnail(
-			ctx, blob, v.MaxWidth, v.MaxHeight, InterestingNone, SizeDown, n,
+			ctx, blob, v.MaxWidth, v.MaxHeight, InterestingNone, SizeDown, n, 1, 0,
 		); err != nil {
 			return
 		}
@@ -214,6 +215,11 @@ func (v *Processor) fill(ctx context.Context, img *Image, w, h int, pLeft, pTop,
 			}
 		}
 		if isTransparent {
+			if img.Bands() < 3 {
+				if err = img.ToColorSpace(InterpretationSRGB); err != nil {
+					return
+				}
+			}
 			if err = img.AddAlpha(); err != nil {
 				return
 			}
@@ -379,7 +385,11 @@ func label(_ context.Context, img *Image, _ imagor.LoadFunc, args ...string) (er
 			font = args[6]
 		}
 	}
-	// make sure band equals 4
+	if img.Bands() < 3 {
+		if err = img.ToColorSpace(InterpretationSRGB); err != nil {
+			return
+		}
+	}
 	if err = img.AddAlpha(); err != nil {
 		return
 	}

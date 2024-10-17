@@ -23,7 +23,7 @@ func (t testTransport) RoundTrip(r *http.Request) (w *http.Response, err error) 
 		w = &http.Response{
 			StatusCode: http.StatusOK,
 			Body:       io.NopCloser(strings.NewReader(res)),
-			Header:     map[string][]string{},
+			Header:     make(http.Header),
 		}
 		w.Header.Set("Content-Type", "image/jpeg")
 		return
@@ -48,6 +48,7 @@ type test struct {
 	name   string
 	target string
 	result string
+	header map[string]string
 	err    string
 }
 
@@ -80,6 +81,11 @@ func doTests(t *testing.T, loader imagor.Loader, tests []test) {
 				}
 				assert.Equal(t, tt.err, msg)
 			}
+			if tt.header != nil {
+				for key, val := range tt.header {
+					assert.Equal(t, val, b.Header.Get(key))
+				}
+			}
 		})
 	}
 }
@@ -108,17 +114,17 @@ func TestWithAllowedSources(t *testing.T) {
 		{
 			name:   "not allowed source",
 			target: "https://foo.boo/boooo",
-			err:    "imagor: 400 invalid",
+			err:    "imagor: 403 http source not allowed",
 		},
 		{
 			name:   "not allowed source",
 			target: "https://foo.barr/baz",
-			err:    "imagor: 400 invalid",
+			err:    "imagor: 403 http source not allowed",
 		},
 		{
 			name:   "not allowed source",
 			target: "https://boo.bar/baz",
-			err:    "imagor: 400 invalid",
+			err:    "imagor: 403 http source not allowed",
 		},
 		{
 			name:   "csv allowed source",
@@ -129,6 +135,51 @@ func TestWithAllowedSources(t *testing.T) {
 			name:   "glob allowed source",
 			target: "https://foo.abc/bar",
 			result: "foobar",
+		},
+	})
+}
+
+func TestWithAllowedSourceRegexp(t *testing.T) {
+	doTests(t, New(
+		WithTransport(testTransport{
+			"https://goo.org/image1.png":   "goo_image1",
+			"https://foo.com/dogs/dog.jpg": "dog",
+		}),
+		WithAllowedSourceRegexps(
+			`^https://(foo|bar)\.com/dogs/.*\.jpg$`,
+			`^https://goo\.org/.*`,
+		),
+	), []test{
+		{
+			name:   "allowed source",
+			target: "https://goo.org/image1.png",
+			result: "goo_image1",
+		},
+		{
+			name:   "allowed source",
+			target: "https://foo.com/dogs/dog.jpg",
+			result: "dog",
+		},
+		{
+			name:   "allowed not found",
+			target: "https://goo.org/image2.png",
+			result: "not found",
+			err:    "imagor: 404 Not Found",
+		},
+		{
+			name:   "not allowed source",
+			target: "https://goo2.org/https://goo.org/image.png",
+			err:    "imagor: 403 http source not allowed",
+		},
+		{
+			name:   "not allowed source",
+			target: "https://foo.com/dogs/../cats/cat.jpg",
+			err:    "imagor: 403 http source not allowed",
+		},
+		{
+			name:   "not allowed source",
+			target: "https://foo.com/dogs/dog.jpg?size=small",
+			err:    "imagor: 403 http source not allowed",
 		},
 	})
 }
@@ -158,7 +209,7 @@ func TestWithAllowedSourcesRedirect(t *testing.T) {
 
 		b, err := blob.ReadAll()
 		assert.Empty(t, b)
-		assert.ErrorIs(t, err, imagor.ErrInvalid)
+		assert.ErrorIs(t, err, imagor.ErrSourceNotAllowed)
 	})
 
 	t.Run("Allowed redirect", func(t *testing.T) {
@@ -443,6 +494,31 @@ func TestWithForwardHeadersOverrideUserAgent(t *testing.T) {
 			name:   "user agent",
 			target: "https://foo.bar/baz",
 			result: "ok",
+		},
+	})
+}
+
+func TestWithOverrideResponseHeader(t *testing.T) {
+	doTests(t, New(
+		WithTransport(roundTripFunc(func(r *http.Request) (w *http.Response, err error) {
+			res := &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     map[string][]string{},
+				Body:       io.NopCloser(strings.NewReader("ok")),
+			}
+			res.Header.Set("Content-Type", "image/jpeg")
+			res.Header.Set("Foo", "Bar")
+			return res, nil
+		})),
+		WithOverrideResponseHeaders("foo"),
+	), []test{
+		{
+			name:   "user agent",
+			target: "https://foo.bar/baz",
+			result: "ok",
+			header: map[string]string{
+				"Foo": "Bar",
+			},
 		},
 	})
 }

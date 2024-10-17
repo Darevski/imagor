@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +34,8 @@ const (
 	BlobTypeTIFF
 	BlobTypeJP2
 	BlobTypeBMP
+	BlobTypePDF
+	BlobTypeSVG
 )
 
 // Blob imagor data blob abstraction
@@ -49,7 +52,8 @@ type Blob struct {
 	contentType   string
 	memory        *memory
 
-	Stat *Stat
+	Header http.Header
+	Stat   *Stat
 }
 
 // Stat Blob stat attributes
@@ -150,6 +154,7 @@ var gifHeader = []byte("\x47\x49\x46")
 var webpHeader = []byte("\x57\x45\x42\x50")
 var pngHeader = []byte("\x89\x50\x4E\x47")
 var bmpHeader = []byte("BM")
+var pdfHeader = []byte("\x25\x50\x44\x46")
 
 // https://github.com/strukturag/libheif/blob/master/libheif/heif.cc
 var ftyp = []byte("ftyp")
@@ -171,6 +176,11 @@ var tifII = []byte("\x49\x49\x2A\x00")
 var tifMM = []byte("\x4D\x4D\x00\x2A")
 
 var jsonPrefix = []byte(`{"`)
+var (
+	svgComment       = regexp.MustCompile(`(?s)<!--.*?-->`)
+	svgTagRegex      = regexp.MustCompile(`(?si)\A\s*(?:(<!DOCTYPE\s+svg([\s:]+.*?>|>))\s*)*<svg\b`)
+	svgTagInXMLRegex = regexp.MustCompile(`(?si)\A<\?xml\b.*?\?>\s*(?:(<!DOCTYPE\s+svg([\s:]+.*?>|>))\s*)*<svg\b`)
+)
 
 type readSeekNopCloser struct {
 	io.ReadSeeker
@@ -290,7 +300,7 @@ func (b *Blob) doInit() {
 		}
 		return
 	}
-	if b.blobType != BlobTypeEmpty && b.blobType != BlobTypeJSON &&
+	if b.blobType != BlobTypeEmpty && b.blobType != BlobTypeJSON && b.blobType != BlobTypeSVG &&
 		len(b.sniffBuf) > 24 {
 		if bytes.Equal(b.sniffBuf[:3], jpegHeader) {
 			b.blobType = BlobTypeJPEG
@@ -313,6 +323,8 @@ func (b *Blob) doInit() {
 			bytes.Equal(b.sniffBuf[20:24], jpm) ||
 			bytes.Equal(b.sniffBuf[20:24], jpx)) {
 			b.blobType = BlobTypeJP2
+		} else if bytes.Equal(b.sniffBuf[:4], pdfHeader) {
+			b.blobType = BlobTypePDF
 		} else if bytes.Equal(b.sniffBuf[:2], bmpHeader) {
 			b.blobType = BlobTypeBMP
 		}
@@ -337,17 +349,34 @@ func (b *Blob) doInit() {
 			b.contentType = "image/tiff"
 		case BlobTypeJP2:
 			b.contentType = "image/jp2"
+		case BlobTypePDF:
+			b.contentType = "application/pdf"
 		case BlobTypeBMP:
 			b.contentType = "image/bmp"
+		case BlobTypeSVG:
+			b.contentType = "image/svg+xml"
 		default:
 			b.contentType = http.DetectContentType(b.sniffBuf)
 		}
 	}
-	if b.blobType == BlobTypeUnknown &&
-		strings.HasPrefix(b.contentType, "text/plain") {
-		if bytes.Equal(b.sniffBuf[:2], jsonPrefix) {
-			b.blobType = BlobTypeJSON
-			b.contentType = "application/json"
+	if b.blobType == BlobTypeUnknown {
+		if strings.HasPrefix(b.contentType, "text/plain") {
+			if bytes.Equal(b.sniffBuf[:2], jsonPrefix) {
+				b.blobType = BlobTypeJSON
+				b.contentType = "application/json"
+			}
+		}
+		// idea taken from https://github.com/go-gitea/gitea/blob/58dfaf3a75a097088376a9c221784b3675ac9c48/modules/typesniffer/typesniffer.go#L98-L107
+		detectByHTML := strings.HasPrefix(b.contentType, "text/plain") || strings.HasPrefix(b.contentType, "text/html")
+		detectByXML := strings.HasPrefix(b.contentType, "text/xml")
+		if detectByHTML || detectByXML {
+			dataProcessed := svgComment.ReplaceAll(b.sniffBuf, nil)
+			dataProcessed = bytes.TrimSpace(dataProcessed)
+			if (detectByHTML && svgTagRegex.Match(dataProcessed)) ||
+				(detectByXML && svgTagInXMLRegex.Match(dataProcessed)) {
+				b.blobType = BlobTypeSVG
+				b.contentType = "image/svg+xml"
+			}
 		}
 	}
 }
@@ -511,8 +540,12 @@ func getExtension(typ BlobType) (ext string) {
 		ext = ".jp2"
 	case BlobTypeBMP:
 		ext = ".bmp"
+	case BlobTypePDF:
+		ext = ".pdf"
 	case BlobTypeJSON:
 		ext = ".json"
+	case BlobTypeSVG:
+		ext = ".svg"
 	}
 	return
 }

@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"io"
-	"io/ioutil"
 	"os"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func doTestBlobReaders(t *testing.T, b *Blob, buf []byte) {
@@ -112,11 +112,25 @@ func TestBlobTypes(t *testing.T) {
 			bytesType:   BlobTypeJP2,
 		},
 		{
+			name:        "pdf",
+			path:        "sample.pdf",
+			contentType: "application/pdf",
+			extension:   ".pdf",
+			bytesType:   BlobTypePDF,
+		},
+		{
 			name:        "bmp",
 			path:        "bmp_24.bmp",
 			contentType: "image/bmp",
 			extension:   ".bmp",
 			bytesType:   BlobTypeBMP,
+		},
+		{
+			name:        "svg",
+			path:        "test.svg",
+			contentType: "image/svg+xml",
+			extension:   ".svg",
+			bytesType:   BlobTypeSVG,
 		},
 	}
 	for _, tt := range tests {
@@ -153,7 +167,7 @@ func TestBlobTypes(t *testing.T) {
 			doTestBlobReaders(t, b, buf)
 
 			b = NewBlob(func() (reader io.ReadCloser, size int64, err error) {
-				return ioutil.NopCloser(bytes.NewReader(buf)), int64(len(buf)), nil
+				return io.NopCloser(bytes.NewReader(buf)), int64(len(buf)), nil
 			})
 			assert.Equal(t, tt.supportsAnimation, b.SupportsAnimation())
 			assert.Equal(t, tt.contentType, b.ContentType())
@@ -167,7 +181,7 @@ func TestBlobTypes(t *testing.T) {
 
 			b = NewBlob(func() (reader io.ReadCloser, size int64, err error) {
 				// unknown size to force discard fanout
-				return ioutil.NopCloser(bytes.NewReader(buf)), 0, nil
+				return io.NopCloser(bytes.NewReader(buf)), 0, nil
 			})
 			assert.Equal(t, tt.supportsAnimation, b.SupportsAnimation())
 			assert.Equal(t, tt.contentType, b.ContentType())

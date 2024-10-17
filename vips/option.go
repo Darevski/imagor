@@ -44,6 +44,22 @@ func WithMozJPEG(enabled bool) Option {
 	}
 }
 
+// WithStripMetadata with strip all metadata from image option
+func WithStripMetadata(enabled bool) Option {
+	return func(v *Processor) {
+		v.StripMetadata = enabled
+	}
+}
+
+// WithAvifSpeed with avif speed option
+func WithAvifSpeed(avifSpeed int) Option {
+	return func(v *Processor) {
+		if avifSpeed >= 0 && avifSpeed <= 9 {
+			v.AvifSpeed = avifSpeed
+		}
+	}
+}
+
 // WithMaxFilterOps with maximum number of filter operations option
 func WithMaxFilterOps(num int) Option {
 	return func(v *Processor) {
